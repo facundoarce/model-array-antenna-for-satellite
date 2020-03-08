@@ -1,144 +1,262 @@
 %% Parameters
 clc, clear, close all
 c = 3e8;                    % Propagation speed in free space [m/s]
-f = 150e6;                  % Frequency of radiation [Hz = 1/s]
-lambda0 = c / f;            % Wavelenght [m]
-k0 = 2 * pi / lambda0;      % Free space wave number
-d = lambda0 / 2;            % Distance between radiators/elements [m]
+f0 = 150e6;                 % Frequency of radiation [Hz = 1/s]
+lambda0 = c / f0;           % Wavelenght [m]
+k0 = 360 / lambda0;         % Free space wave number [deg/m] 2 * pi / lambda0;
+d_elem = lambda0 / 2;       % Distance between radiators/elements [m]
 K = 4;                      % Number of radiators/elements in array
+h = 650e3;                  % Flying altitude [m] 
+theta = -90 : 90;           % Angle relative to broadside
+theta0 = -20;                 % Desired beam-pointing direction [deg]
+
+%% Satellite motion
+% Supposing a uniform circular motion that 
+Re = 6371e3;                % Radius of the Earth [m]
+Me = 5.98e24;               % Mass of the Earth [kg]
+G = 6.673e-11;              % Gravitational constant [N*m^2/kg^2]
+R = Re + h;                 % Radius of the satellite trajectory [m]
+
+v_t = sqrt( G * Me / R );   % Tangential velocity of satellite [m/s] 
+w = v_t / R * 180 / pi;     % Angular velocity [deg/s]
+
+% d_max = distance_to_satellite_antenna (h, -90);
+% alpha_max = 2 * asind( d_max * sind(90) / ( Re + h ) );
+alpha_max = 2 * acosd( Re / R );
+t_end = ceil(alpha_max / w);
+
+d_max = distance_to_satellite_earth(h, alpha_max, 0);
+T = 360 / w / 60;           % Period [min]
+
+t = 0 : t_end;
+alpha = w * t;
+
+d_t = distance_to_satellite_earth ( h, alpha_max, alpha );
+theta_t = alpha_to_theta ( h, d_t, alpha_max, alpha );
+
+figure()
+plot(t/60, alpha, t/60, theta_t, 'LineWidth', 2)
+grid on
+set(gca,'ytick',[-90:30:90])
+legend('alpha (Earth reference)', 'theta (antenna reference)')
+xlabel('Time [min]')
+ylabel('Angle [deg]')
+title('Angular trajectory of satellite')
+save_figure('angular-trajectory-satellite');
+
+figure()
+plot(t/60, d_t/1000, 'LineWidth', 2)
+grid on
+xlabel('Time [min]')
+ylabel('Distance [km]')
+title('Distance from antenna to satellite')
+save_figure('t-distance-antenna-satellite');
 
 %% Radiation patterns
 % Grating lobes within visible space (-90 <= theta <= 90)
-if d/lambda0 <= 1
-    fprintf('No visible grating lobes\nd/lambda0 = %f <= 1\n', d/lambda0)
+if d_elem/lambda0 <= 1/2     % 1 for broadside linear array (theta0=0) and 1/2 for phased array
+    fprintf('No visible grating lobes\nd/lambda0 = %f <= 1/2\n', d_elem/lambda0)
 else
-    fprintf('Visible grating lobes\nd/lambda0 = %f > 1\n', d/lambda0)
+    fprintf('Visible grating lobes\nd/lambda0 = %f > 1/2\n', d_elem/lambda0)
 end
 
-s_a = [];   % Array factor
-s_e = [];   % Element factor
-s = [];     % Total array radiation pattern
-th = [];
+s_a = array_factor( k0, d_elem, K, theta0, theta );  % Array factor
+s_a_n = normalized_array_factor( s_a, K );
 
-for theta = -90 : 90
-    th = [th, theta];
-    s_a = [s_a, normalized_array_factor(array_factor( k0, d, K, theta ), K )];
-    s_e = [s_e, normalized_element_factor( element_factor( theta ) )];
-    s = [s, radiation_pattern(k0, d, K, theta)];
-end
+s_e = element_factor( theta );                  % Element factor
+s_e_n = normalized_element_factor( s_e );
+
+s = radiation_pattern (s_a, s_e, K);            % Total array radiation pattern
 
 figure()
-plot(th, s_a, th, s_e, th, s);
+plot(theta, s_a_n, theta, s_e_n, theta, s, 'LineWidth', 2);
+grid
 xlim([-90 90])
 ylim([-60 0])
+set(gca,'xtick',[-90:10:90])
 legend('Array factor','Element factor', 'Total array')
 xlabel('Angle relative to broadside [deg]')
 ylabel('Power radiation pattern [dB]')
 title('Radiation pattern')
+save_figure('radiation-pattern');
 
 %% Phase offset due to antenna array
-T = 1e-8;
-dt = 1e-10;
-time = 0 : dt : T;
-s_i = zeros(K, length(time));
-theta = 45;
-counter = 0;
+elem = ( 1 : K )';
+phi = phase_offset ( k0, d_elem, K, theta0, elem, theta );	% phase offset
 
 figure()
-for elem = 1 : K
-    for t = 0 : dt : T
-        counter = counter + 1;
-        s_i(elem, counter) = received_signal( f, k0, d, K, elem, theta, t );
-    end
-    plot(time, s_i(elem,:));
-    hold on;
-    
-    counter = 0;
-end
+plot(theta, phi(1,:), theta, phi(2,:), theta, phi(3,:), theta, phi(4,:), 'LineWidth', 2);
+grid
+xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
+set(gca,'ytick',[-540:90:540])
+legend('Element 1','Element 2', 'Element 3', 'Element 4', 'Location', 'northwest')
+xlabel('Angle relative to broadside [deg]')
+ylabel('Phase offset [deg]')
+title('Phase offset')
+save_figure('phase-offset')
 
-legend('Element 1','Element 2', 'Element 3', 'Element 4')
-xlabel('Time [s]')
-ylabel('Relative amplitude')
-title('Received signal')
+% % PARA POSTER
+% figure()
+% plot(theta, phi(1,:), theta, phi(2,:), theta, phi(3,:), theta, phi(4,:), 'LineWidth', 2);
+% grid
+% xlim([-90 90])
+% set(gca,'xtick',[-90:30:90])
+% set(gca,'ytick',[-540:180:540])
+% legend('Element 1','Element 2', 'Element 3', 'Element 4')
+% xlabel('Angle relative to broadside [deg]')
+% ylabel('Phase offset [deg]')
+% title('Phase offset')
+% set(gcf, 'Position', [100, 100, 375, 175])
 
 %% Frequency shift due to doppler effect
-v_t = 7700;     %% tangential speed of satellite [m/s] 
-th = [];
-delta_f = [];
-
-for theta = -90 : 90
-    th = [th, theta];
-    delta_f = [delta_f, - v_t * sind( theta ) / c * f];
-end
-f_obs = f + delta_f;
+delta_f = doppler_shift ( c, v_t, f0, theta );
+f_obs = f0 + delta_f;
 
 figure()
-plot(th, delta_f);
+plot(theta, delta_f, 'LineWidth', 2);
 grid on
 xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
 xlabel('Angle relative to broadside [deg]')
 ylabel('Doppler shift [Hz]')
 title('Doppler shift')
+save_figure('doppler-shift')
+
+% % PARA POSTER
+% figure()
+% plot(theta, delta_f, 'LineWidth', 2);
+% grid on
+% xlim([-90 90])
+% set(gca,'xtick',[-90:30:90])
+% xlabel('Angle relative to broadside [deg]')
+% ylabel('Doppler shift [Hz]')
+% title('Doppler shift')
+% set(gcf, 'Position', [100, 100, 350, 175])
 
 figure()
-plot(th, f_obs);
+plot(theta(1:end-1), diff(delta_f), 'LineWidth', 2);
 grid on
 xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
 xlabel('Angle relative to broadside [deg]')
-ylabel('Observed frequency [Hz]')
+ylabel('Doppler shift derivative [Hz/deg]')
+title('Doppler shift derivative')
+
+figure()
+plot(theta, f_obs/1e6, 'LineWidth', 2);
+grid on
+xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
+xlabel('Angle relative to broadside [deg]')
+ylabel('Observed frequency [MHz]')
 title('Received signal')
+save_figure('observed-frequency')
 
 %% Amplitude offsett due to free-space path loss
-h = 500e3;                              % Flying altitude [m] 
-d = h;                                  % Distance between the satellite and the ground station
-Pl = free_space_path_loss( h, 700e3 );  % Free-space path loss relative to zenith [dB]
-Pr = 10^(-Pl/10);                       % Relative received power [0;1]
-% Vr = 10^(-Pl/10);                       % Relative voltage [0;1]
+d = distance_to_satellite_antenna( h, theta );  % Distance between the satellite and the ground station
+Pl = free_space_path_loss( h, d );              % Free-space path loss relative to zenith [dB]
+Pr = 10.^(-Pl/10);                              % Relative received power [0;1]
+Vr = sqrt(Pr);                                  % Relative voltage [0;1] (P=V^2/R) 
 
-th = [];
-dist = [];
-pl = [];
-pr = [];
-
-for theta = -90 : 90
-    th = [th, theta];
-    d = distance_to_satellite( h, theta );
-    Pl = free_space_path_loss( h, d );
-    
-    dist = [dist, d];
-    pl = [pl, Pl];
-    pr = [pr, 10^(-Pl/10)];
-end
-R = 50;
-Vr = sqrt(pr*R);
 figure()
-subplot(3,1,1)
-plot(th, dist);
+plot(theta, d, 'LineWidth', 2);
 grid on
 xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
 xlabel('Angle relative to broadside [deg]')
 ylabel('Distance [m]')
 title('Distance from antenna to satellite')
+save_figure('distance-antenna-satellite')
 
-subplot(3,1,2)
-plot(th, pl);
+figure()
+plot(theta, Pl, 'LineWidth', 2);
 grid on
 xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
 xlabel('Angle relative to broadside [deg]')
 ylabel('Power loss [dB]')
 title('Free-space path loss relative to zenith')
+save_figure('free-space-path-loss')
 
-subplot(3,1,3)
-plot(th, pr);
+% % PARA POSTER
+% color = [0.4660, 0.6740, 0.1880];
+% figure()
+% plot(theta, Pl, 'LineWidth', 2, 'Color', color);
+% grid on
+% xlim([-90 90])
+% set(gca,'xtick',[-90:30:90])
+% xlabel('Angle relative to broadside [deg]')
+% ylabel('Power loss [dB]')
+% title('Normalized free-space path loss')
+% set(gcf, 'Position', [100, 100, 350, 175])
+
+figure()
+plot(theta, Pr, 'LineWidth', 2);
 grid on
 xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
 xlabel('Angle relative to broadside [deg]')
 ylabel('Power [-]')
 title('Received power relative to zenith')
+save_figure('received-power')
 
-figure
-plot(th, Vr/max(Vr));
-hold on
-plot(th, sqrt(pr), 'r');
+figure()
+plot(theta, Vr, 'LineWidth', 2);
+grid on
+xlim([-90 90])
+set(gca,'xtick',[-90:10:90])
+xlabel('Angle relative to broadside [deg]')
+ylabel('Voltage [-]')
+title('Voltage of receiver relative to zenith')
+save_figure('voltage-received')
+
+%% BEAM FORMING WITH CABLES OF DIFFERENT LENGTH
+delta_d_cable = 227e-3;                 % Length difference between cables
+v_cable = 0.66 * c;                     % Propagation speed in the cable [m/s]
+t_dif = delta_d_cable / (0.66*c);       % Time offset between signals [s]
+phase_shift = -360 * t_dif / (1/f0)      % Phase shift of signals [deg]
+
+[ ~, ix ] = min( abs( phi(3,:) - phase_shift ) );
+theta_beam = theta(ix)                  % Beam-pointing direction [deg]
+
+%% Received signals as a function of time
+% Frequency
+delta_f = doppler_shift ( c, v_t, f0, theta_t );
+% Phase
+elem = ( 1 : K )';
+phi = phase_offset ( k0, d_elem, K, theta0, elem, theta_t );
+% Amplitude
+Pl = free_space_path_loss( h, d_t );    % Free-space path loss relative to zenith [dB]
+Pr = 10.^(-Pl/10);                      % Relative received power [0;1]
+Vr = sqrt(Pr);                          % Relative voltage [0;1] (P=V^2/R) 
+% Vr = h/d
+
+figure()
+plot(t/60, delta_f/1e3, 'LineWidth', 2);
+grid on
+xlabel('Time [min]')
+ylabel('Frequency shift [KHz]')
+% title('Received signal')
+save_figure('t-frequency-shift')
+
+figure()
+plot(t/60, phi(1,:), t/60, phi(2,:), t/60, phi(3,:), t/60, phi(4,:), 'LineWidth', 2);
+legend('Element 1','Element 2', 'Element 3', 'Element 4')
+grid on
+set(gca,'ytick',[-540:180:540])
+xlabel('Time [min]')
+ylabel('Phase offset [deg]')
+% title('Received signal')
+save_figure('t-phase-offset')
+
+figure()
+% color = [0.4660, 0.6740, 0.1880];
+plot(t/60, Pr, 'LineWidth', 2);
+grid on
+xlabel('Time [min]')
+ylabel('Relative amplitude')
+% title('Received signal')
+save_figure('t-relative-amplitude')
 
 

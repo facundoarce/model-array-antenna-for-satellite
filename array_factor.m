@@ -1,8 +1,8 @@
-function s_a = array_factor (k0, d, K, theta)
+function s_a = array_factor (k0, d, K, theta0, theta)
 
-s_a = 0;
+s_a = zeros(1, length(theta));
 for elem = 1 : K
-    s_a = s_a + exp( 1j * k0 * ( K - elem ) * d * sind( theta ) );
+    s_a = s_a + exp( 1j * deg2rad(k0) * ( K - elem ) * d * ( sind( theta ) - sind(theta0) ) );
 end
 
 end
